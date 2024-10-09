@@ -56,98 +56,6 @@ void _evWiFiDisconnectedHandler(arduino_event_t* event) {
 using namespace OpenShock;
 namespace JsonAPI = OpenShock::Serialization::JsonAPI;
 
-bool GatewayConnectionManager::Init() {
-  WiFi.onEvent(_evGotIPHandler, ARDUINO_EVENT_WIFI_STA_GOT_IP);
-  WiFi.onEvent(_evGotIPHandler, ARDUINO_EVENT_WIFI_STA_GOT_IP6);
-  WiFi.onEvent(_evWiFiDisconnectedHandler, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-
-  return true;
-}
-
-bool GatewayConnectionManager::IsConnected() {
-  if (s_wsClient == nullptr) {
-    return false;
-  }
-
-  return s_wsClient->state() == GatewayClient::State::Connected;
-}
-
-bool GatewayConnectionManager::IsLinked() {
-  return (s_flags & FLAG_LINKED) != 0;
-}
-
-AccountLinkResultCode GatewayConnectionManager::Link(std::string_view linkCode) {
-  if ((s_flags & FLAG_HAS_IP) == 0) {
-    return AccountLinkResultCode::NoInternetConnection;
-  }
-  s_wsClient = nullptr;
-
-  OS_LOGD(TAG, "Attempting to link to account using code %.*s", linkCode.length(), linkCode.data());
-
-  if (linkCode.length() != LINK_CODE_LENGTH) {
-    OS_LOGE(TAG, "Invalid link code length");
-    return AccountLinkResultCode::InvalidCode;
-  }
-
-  auto response = HTTP::JsonAPI::LinkAccount(linkCode);
-
-  if (response.result == HTTP::RequestResult::RateLimited) {
-    return AccountLinkResultCode::InternalError;  // Just return false, don't spam the console with errors
-  }
-  if (response.result != HTTP::RequestResult::Success) {
-    OS_LOGE(TAG, "Error while getting auth token: %d %d", response.result, response.code);
-
-    return AccountLinkResultCode::InternalError;
-  }
-
-  if (response.code == 404) {
-    return AccountLinkResultCode::InvalidCode;
-  }
-
-  if (response.code != 200) {
-    OS_LOGE(TAG, "Unexpected response code: %d", response.code);
-    return AccountLinkResultCode::InternalError;
-  }
-
-  std::string_view authToken = response.data.authToken;
-
-  if (authToken.empty()) {
-    OS_LOGE(TAG, "Received empty auth token");
-    return AccountLinkResultCode::InternalError;
-  }
-
-  if (!Config::SetBackendAuthToken(authToken)) {
-    OS_LOGE(TAG, "Failed to save auth token");
-    return AccountLinkResultCode::InternalError;
-  }
-
-  s_flags |= FLAG_LINKED;
-  OS_LOGD(TAG, "Successfully linked to account");
-
-  return AccountLinkResultCode::Success;
-}
-void GatewayConnectionManager::UnLink() {
-  s_flags &= FLAG_HAS_IP;
-  s_wsClient = nullptr;
-  Config::ClearBackendAuthToken();
-}
-
-bool GatewayConnectionManager::SendMessageTXT(std::string_view data) {
-  if (s_wsClient == nullptr) {
-    return false;
-  }
-
-  return s_wsClient->sendMessageTXT(data);
-}
-
-bool GatewayConnectionManager::SendMessageBIN(const uint8_t* data, std::size_t length) {
-  if (s_wsClient == nullptr) {
-    return false;
-  }
-
-  return s_wsClient->sendMessageBIN(data, length);
-}
-
 bool FetchDeviceInfo(std::string_view authToken) {
   // TODO: this function is very slow, should be optimized!
   if ((s_flags & FLAG_HAS_IP) == 0) {
@@ -255,7 +163,7 @@ bool StartConnectingToLCG() {
   return true;
 }
 
-void GatewayConnectionManager::Update() {
+void _gatewayConnectionManagerTask(void*) {
   if (s_wsClient == nullptr) {
     // Can't connect to the API without WiFi or an auth token
     if ((s_flags & FLAG_HAS_IP) == 0 || !Config::HasBackendAuthToken()) {
@@ -279,9 +187,98 @@ void GatewayConnectionManager::Update() {
     s_wsClient = std::make_unique<GatewayClient>(authToken);
   }
 
-  if (s_wsClient->loop()) {
-    return;
+  StartConnectingToLCG();
+}
+
+bool GatewayConnectionManager::Init() {
+  WiFi.onEvent(_evGotIPHandler, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent(_evGotIPHandler, ARDUINO_EVENT_WIFI_STA_GOT_IP6);
+  WiFi.onEvent(_evWiFiDisconnectedHandler, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+  return true;
+}
+
+bool GatewayConnectionManager::IsConnected() {
+  if (s_wsClient == nullptr) {
+    return false;
   }
 
-  StartConnectingToLCG();
+  return s_wsClient->state() == GatewayClient::State::Connected;
+}
+
+bool GatewayConnectionManager::IsLinked() {
+  return (s_flags & FLAG_LINKED) != 0;
+}
+
+AccountLinkResultCode GatewayConnectionManager::Link(std::string_view linkCode) {
+  if ((s_flags & FLAG_HAS_IP) == 0) {
+    return AccountLinkResultCode::NoInternetConnection;
+  }
+  s_wsClient = nullptr;
+
+  OS_LOGD(TAG, "Attempting to link to account using code %.*s", linkCode.length(), linkCode.data());
+
+  if (linkCode.length() != LINK_CODE_LENGTH) {
+    OS_LOGE(TAG, "Invalid link code length");
+    return AccountLinkResultCode::InvalidCode;
+  }
+
+  auto response = HTTP::JsonAPI::LinkAccount(linkCode);
+
+  if (response.result == HTTP::RequestResult::RateLimited) {
+    return AccountLinkResultCode::InternalError;  // Just return false, don't spam the console with errors
+  }
+  if (response.result != HTTP::RequestResult::Success) {
+    OS_LOGE(TAG, "Error while getting auth token: %d %d", response.result, response.code);
+
+    return AccountLinkResultCode::InternalError;
+  }
+
+  if (response.code == 404) {
+    return AccountLinkResultCode::InvalidCode;
+  }
+
+  if (response.code != 200) {
+    OS_LOGE(TAG, "Unexpected response code: %d", response.code);
+    return AccountLinkResultCode::InternalError;
+  }
+
+  std::string_view authToken = response.data.authToken;
+
+  if (authToken.empty()) {
+    OS_LOGE(TAG, "Received empty auth token");
+    return AccountLinkResultCode::InternalError;
+  }
+
+  if (!Config::SetBackendAuthToken(authToken)) {
+    OS_LOGE(TAG, "Failed to save auth token");
+    return AccountLinkResultCode::InternalError;
+  }
+
+  s_flags |= FLAG_LINKED;
+  OS_LOGD(TAG, "Successfully linked to account");
+
+  return AccountLinkResultCode::Success;
+}
+
+void GatewayConnectionManager::UnLink() {
+  s_flags &= FLAG_HAS_IP;
+  s_wsClient = nullptr;
+  Config::ClearBackendAuthToken();
+}
+
+bool GatewayConnectionManager::SendMessageTXT(std::string_view data) {
+  if (s_wsClient == nullptr) {
+    return false;
+  }
+
+  return s_wsClient->sendMessageTXT(data);
+}
+
+bool GatewayConnectionManager::SendMessageBIN(const uint8_t* data, std::size_t length) {
+  if (s_wsClient == nullptr) {
+    return false;
+  }
+
+  return s_wsClient->sendMessageBIN(data, length);
 }

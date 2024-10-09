@@ -1,3 +1,5 @@
+#include <freertos/FreeRTOS.h>
+
 #include "GatewayClient.h"
 
 const char* const TAG = "GatewayClient";
@@ -10,13 +12,20 @@ const char* const TAG = "GatewayClient";
 #include "serialization/WSGateway.h"
 #include "Time.h"
 #include "util/CertificateUtils.h"
+#include "util/FnProxy.h"
+#include "util/TaskUtils.h"
 #include "VisualStateManager.h"
 
 using namespace OpenShock;
 
 static bool s_bootStatusSent = false;
 
-GatewayClient::GatewayClient(const std::string& authToken) : m_webSocket(), m_lastKeepAlive(0), m_state(State::Disconnected) {
+GatewayClient::GatewayClient(const std::string& authToken)
+  : m_webSocket()
+  , m_lastKeepAlive(0)
+  , m_state(State::Disconnected)
+  , m_loopTask(nullptr)
+{
   OS_LOGD(TAG, "Creating GatewayClient");
 
   std::string headers = "Firmware-Version: " OPENSHOCK_FW_VERSION "\r\n"
@@ -29,11 +38,25 @@ GatewayClient::GatewayClient(const std::string& authToken) : m_webSocket(), m_la
 }
 GatewayClient::~GatewayClient() {
   OS_LOGD(TAG, "Destroying GatewayClient");
+  if (m_loopTask != nullptr) {
+    vTaskDelete(m_loopTask);
+  }
   m_webSocket.disconnect();
 }
 
 void GatewayClient::connect(const char* lcgFqdn) {
   if (m_state != State::Disconnected) {
+    return;
+  }
+
+  if (m_loopTask != nullptr) {
+    vTaskDelete(m_loopTask);
+  }
+
+  esp_err_t err;
+  err = TaskUtils::TaskCreateExpensive(&Util::FnProxy<&GatewayClient::_loop>, "GatewayClientLoop", 8192, this, 1, &m_loopTask);
+  if (err != ESP_OK) {
+    OS_LOGE(TAG, "Failed to create GatewayClient loop task: %s", esp_err_to_name(err));
     return;
   }
 
@@ -80,29 +103,28 @@ bool GatewayClient::sendMessageBIN(const uint8_t* data, std::size_t length) {
   return m_webSocket.sendBIN(data, length);
 }
 
-bool GatewayClient::loop() {
-  if (m_state == State::Disconnected) {
-    return false;
+void GatewayClient::_loop() {
+  while (m_state != State::Disconnected)
+  {
+    m_webSocket.loop();
+
+    // We are still in the process of connecting or disconnecting, wait for the event to be processed
+    if (m_state != State::Connected) continue;
+
+    int64_t now = OpenShock::millis();
+
+    int64_t timeSinceLastKA = now - m_lastKeepAlive;
+
+    if (timeSinceLastKA >= 15'000) {
+      _sendKeepAlive();
+      m_lastKeepAlive = now;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10)); // 100 Hz update rate
   }
 
-  m_webSocket.loop();
-
-  // We are still in the process of connecting or disconnecting
-  if (m_state != State::Connected) {
-    // return true to indicate that we are still busy
-    return true;
-  }
-
-  int64_t msNow = OpenShock::millis();
-
-  int64_t timeSinceLastKA = msNow - m_lastKeepAlive;
-
-  if (timeSinceLastKA >= 15'000) {
-    _sendKeepAlive();
-    m_lastKeepAlive = msNow;
-  }
-
-  return true;
+  m_loopTask = nullptr; // Clear the task handle
+  vTaskDelete(nullptr); // Delete the task
 }
 
 void GatewayClient::_setState(State state) {

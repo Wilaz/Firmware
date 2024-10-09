@@ -7,6 +7,8 @@
 #include <string_view>
 #include <unordered_map>
 
+#include <freertos/task.h>
+
 namespace OpenShock {
   class GatewayClient {
   public:
@@ -28,9 +30,8 @@ namespace OpenShock {
     bool sendMessageTXT(std::string_view data);
     bool sendMessageBIN(const uint8_t* data, std::size_t length);
 
-    bool loop();
-
   private:
+    void _loop();
     void _setState(State state);
     void _sendKeepAlive();
     void _sendBootStatus();
@@ -39,5 +40,6 @@ namespace OpenShock {
     WebSocketsClient m_webSocket;
     int64_t m_lastKeepAlive;
     State m_state;
+    TaskHandle_t m_loopTask;
   };
 }  // namespace OpenShock
