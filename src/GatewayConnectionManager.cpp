@@ -34,17 +34,19 @@ const uint8_t FLAG_LINKED = 1 << 1;
 
 const uint8_t LINK_CODE_LENGTH = 6;
 
-static uint8_t s_flags                                 = 0;
+static uint8_t s_flags                                      = 0;
 static std::unique_ptr<OpenShock::GatewayClient> s_wsClient = nullptr;
 
-void _evGotIPHandler(arduino_event_t* event) {
+void _evGotIPHandler(arduino_event_t* event)
+{
   (void)event;
 
   s_flags |= FLAG_HAS_IP;
   OS_LOGD(TAG, "Got IP address");
 }
 
-void _evWiFiDisconnectedHandler(arduino_event_t* event) {
+void _evWiFiDisconnectedHandler(arduino_event_t* event)
+{
   (void)event;
 
   s_flags    = FLAG_NONE;
@@ -56,7 +58,8 @@ void _evWiFiDisconnectedHandler(arduino_event_t* event) {
 using namespace OpenShock;
 namespace JsonAPI = OpenShock::Serialization::JsonAPI;
 
-bool FetchDeviceInfo(std::string_view authToken) {
+bool FetchDeviceInfo(std::string_view authToken)
+{
   // TODO: this function is very slow, should be optimized!
   if ((s_flags & FLAG_HAS_IP) == 0) {
     return false;
@@ -96,7 +99,8 @@ bool FetchDeviceInfo(std::string_view authToken) {
 }
 
 static int64_t _lastConnectionAttempt = 0;
-bool StartConnectingToLCG() {
+bool StartConnectingToLCG()
+{
   // TODO: this function is very slow, should be optimized!
   if (s_wsClient == nullptr) {  // If wsClient is already initialized, we are already paired or connected
     OS_LOGD(TAG, "wsClient is null");
@@ -163,7 +167,8 @@ bool StartConnectingToLCG() {
   return true;
 }
 
-void _gatewayConnectionManagerTask(void*) {
+void _gatewayConnectionManagerTask(void*)
+{
   if (s_wsClient == nullptr) {
     // Can't connect to the API without WiFi or an auth token
     if ((s_flags & FLAG_HAS_IP) == 0 || !Config::HasBackendAuthToken()) {
@@ -190,7 +195,8 @@ void _gatewayConnectionManagerTask(void*) {
   StartConnectingToLCG();
 }
 
-bool GatewayConnectionManager::Init() {
+bool GatewayConnectionManager::Init()
+{
   WiFi.onEvent(_evGotIPHandler, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent(_evGotIPHandler, ARDUINO_EVENT_WIFI_STA_GOT_IP6);
   WiFi.onEvent(_evWiFiDisconnectedHandler, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
@@ -198,7 +204,8 @@ bool GatewayConnectionManager::Init() {
   return true;
 }
 
-bool GatewayConnectionManager::IsConnected() {
+bool GatewayConnectionManager::IsConnected()
+{
   if (s_wsClient == nullptr) {
     return false;
   }
@@ -206,11 +213,13 @@ bool GatewayConnectionManager::IsConnected() {
   return s_wsClient->state() == GatewayClient::State::Connected;
 }
 
-bool GatewayConnectionManager::IsLinked() {
+bool GatewayConnectionManager::IsLinked()
+{
   return (s_flags & FLAG_LINKED) != 0;
 }
 
-AccountLinkResultCode GatewayConnectionManager::Link(std::string_view linkCode) {
+AccountLinkResultCode GatewayConnectionManager::Link(std::string_view linkCode)
+{
   if ((s_flags & FLAG_HAS_IP) == 0) {
     return AccountLinkResultCode::NoInternetConnection;
   }
@@ -261,13 +270,15 @@ AccountLinkResultCode GatewayConnectionManager::Link(std::string_view linkCode) 
   return AccountLinkResultCode::Success;
 }
 
-void GatewayConnectionManager::UnLink() {
+void GatewayConnectionManager::UnLink()
+{
   s_flags &= FLAG_HAS_IP;
   s_wsClient = nullptr;
   Config::ClearBackendAuthToken();
 }
 
-bool GatewayConnectionManager::SendMessageTXT(std::string_view data) {
+bool GatewayConnectionManager::SendMessageTXT(std::string_view data)
+{
   if (s_wsClient == nullptr) {
     return false;
   }
@@ -275,7 +286,8 @@ bool GatewayConnectionManager::SendMessageTXT(std::string_view data) {
   return s_wsClient->sendMessageTXT(data);
 }
 
-bool GatewayConnectionManager::SendMessageBIN(const uint8_t* data, std::size_t length) {
+bool GatewayConnectionManager::SendMessageBIN(const uint8_t* data, std::size_t length)
+{
   if (s_wsClient == nullptr) {
     return false;
   }

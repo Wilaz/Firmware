@@ -36,7 +36,9 @@ GatewayClient::GatewayClient(const std::string& authToken)
   m_webSocket.setExtraHeaders(headers.c_str());
   m_webSocket.onEvent(std::bind(&GatewayClient::_handleEvent, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 }
-GatewayClient::~GatewayClient() {
+
+GatewayClient::~GatewayClient()
+{
   OS_LOGD(TAG, "Destroying GatewayClient");
   if (m_loopTask != nullptr) {
     vTaskDelete(m_loopTask);
@@ -44,7 +46,8 @@ GatewayClient::~GatewayClient() {
   m_webSocket.disconnect();
 }
 
-void GatewayClient::connect(const char* lcgFqdn) {
+void GatewayClient::connect(const char* lcgFqdn)
+{
   if (m_state != State::Disconnected) {
     return;
   }
@@ -79,7 +82,8 @@ void GatewayClient::connect(const char* lcgFqdn) {
   OS_LOGW(TAG, "WEBSOCKET CONNECTION BY RFC DEFINITION IS INSECURE, remote endpoint can not be verified due to lack of CA verification support, theoretically this is a security risk and allows for MITM attacks, but the realistic risk is low");
 }
 
-void GatewayClient::disconnect() {
+void GatewayClient::disconnect()
+{
   if (m_state != State::Connected) {
     return;
   }
@@ -87,7 +91,8 @@ void GatewayClient::disconnect() {
   m_webSocket.disconnect();
 }
 
-bool GatewayClient::sendMessageTXT(std::string_view data) {
+bool GatewayClient::sendMessageTXT(std::string_view data)
+{
   if (m_state != State::Connected) {
     return false;
   }
@@ -95,7 +100,8 @@ bool GatewayClient::sendMessageTXT(std::string_view data) {
   return m_webSocket.sendTXT(data.data(), data.length());
 }
 
-bool GatewayClient::sendMessageBIN(const uint8_t* data, std::size_t length) {
+bool GatewayClient::sendMessageBIN(const uint8_t* data, std::size_t length)
+{
   if (m_state != State::Connected) {
     return false;
   }
@@ -103,9 +109,9 @@ bool GatewayClient::sendMessageBIN(const uint8_t* data, std::size_t length) {
   return m_webSocket.sendBIN(data, length);
 }
 
-void GatewayClient::_loop() {
-  while (m_state != State::Disconnected)
-  {
+void GatewayClient::_loop()
+{
+  while (m_state != State::Disconnected) {
     m_webSocket.loop();
 
     // We are still in the process of connecting or disconnecting, wait for the event to be processed
@@ -120,14 +126,15 @@ void GatewayClient::_loop() {
       m_lastKeepAlive = now;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10)); // 100 Hz update rate
+    vTaskDelay(pdMS_TO_TICKS(10));  // 100 Hz update rate
   }
 
-  m_loopTask = nullptr; // Clear the task handle
-  vTaskDelete(nullptr); // Delete the task
+  m_loopTask = nullptr;  // Clear the task handle
+  vTaskDelete(nullptr);  // Delete the task
 }
 
-void GatewayClient::_setState(State state) {
+void GatewayClient::_setState(State state)
+{
   if (m_state == state) {
     return;
   }
@@ -148,12 +155,14 @@ void GatewayClient::_setState(State state) {
   }
 }
 
-void GatewayClient::_sendKeepAlive() {
+void GatewayClient::_sendKeepAlive()
+{
   OS_LOGV(TAG, "Sending Gateway keep-alive message");
   Serialization::Gateway::SerializeKeepAliveMessage([this](const uint8_t* data, std::size_t len) { return m_webSocket.sendBIN(data, len); });
 }
 
-void GatewayClient::_sendBootStatus() {
+void GatewayClient::_sendBootStatus()
+{
   if (s_bootStatusSent) return;
 
   OS_LOGV(TAG, "Sending Gateway boot status message");
@@ -185,7 +194,8 @@ void GatewayClient::_sendBootStatus() {
   }
 }
 
-void GatewayClient::_handleEvent(WStype_t type, uint8_t* payload, std::size_t length) {
+void GatewayClient::_handleEvent(WStype_t type, uint8_t* payload, std::size_t length)
+{
   (void)payload;
 
   switch (type) {
